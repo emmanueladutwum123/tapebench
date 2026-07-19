@@ -14,6 +14,9 @@ add_executable(tapebench_tests
   test_synthetic_generator.cpp
   test_mapped_tape.cpp
   test_bar_aggregator.cpp
+  test_strategy.cpp
+  test_moving_average_crossover.cpp
+  test_mean_reversion.cpp
 )
 target_link_libraries(tapebench_tests PRIVATE tapebench GTest::gtest_main)
 target_compile_options(tapebench_tests PRIVATE -Wall -Wextra)
