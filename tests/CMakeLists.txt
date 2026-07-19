@@ -27,15 +27,24 @@ add_executable(tapebench_tests
 target_link_libraries(tapebench_tests PRIVATE tapebench GTest::gtest_main)
 target_compile_options(tapebench_tests PRIVATE -Wall -Wextra)
 
+include(GoogleTest)
+gtest_discover_tests(tapebench_tests)
+
 # Separate executable: overrides global operator new/delete to verify the
 # zero-copy claim on MappedTape's read path. Kept isolated so that
 # instrumentation doesn't affect tapebench_tests' own allocation behavior.
-add_executable(tapebench_zero_copy_tests
-  test_mapped_tape_zero_copy.cpp
-)
-target_link_libraries(tapebench_zero_copy_tests PRIVATE tapebench GTest::gtest_main)
-target_compile_options(tapebench_zero_copy_tests PRIVATE -Wall -Wextra)
-
-include(GoogleTest)
-gtest_discover_tests(tapebench_tests)
-gtest_discover_tests(tapebench_zero_copy_tests)
+# Skipped entirely under TSan: ThreadSanitizer's runtime (libclang_rt.tsan_cxx)
+# provides its own global operator new/delete for its allocation tracking,
+# and linking this executable's overrides alongside them is a hard
+# "multiple definition" link error, not a fixable conflict -- caught by the
+# dedicated TSan CI job the first time it ran. Allocation-counting and race
+# detection are also different concerns: this executable doesn't test
+# concurrency at all, so skipping it under TSan loses no real coverage.
+if(NOT TB_ENABLE_TSAN)
+  add_executable(tapebench_zero_copy_tests
+    test_mapped_tape_zero_copy.cpp
+  )
+  target_link_libraries(tapebench_zero_copy_tests PRIVATE tapebench GTest::gtest_main)
+  target_compile_options(tapebench_zero_copy_tests PRIVATE -Wall -Wextra)
+  gtest_discover_tests(tapebench_zero_copy_tests)
+endif()
