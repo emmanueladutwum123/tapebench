@@ -3,6 +3,7 @@
 #include <iostream>
 #include <span>
 
+#include "tapebench/analytics.hpp"
 #include "tapebench/bar_aggregator.hpp"
 #include "tapebench/mapped_tape.hpp"
 #include "tapebench/simulation.hpp"
@@ -17,10 +18,12 @@ template <typename StrategyT>
 void PrintSimulationSummary(const char* label, StrategyT& strategy, std::span<const tapebench::Bar> bars,
                              const tapebench::ExecutionModel& execution) {
   auto result = tapebench::simulate(strategy, bars, execution);
-  const double final_equity = result.equity_curve.empty() ? 0.0 : result.equity_curve.back().equity;
-  std::cout << "  " << label << " (" << strategy.name() << "): final equity=" << final_equity
-            << "  fills=" << result.fill_count << "  final position=" << result.final_position.quantity
-            << "  realized=" << result.final_position.realized_pnl << "\n";
+  auto report = tapebench::analyze(result);
+  std::cout << "  " << label << " (" << strategy.name() << ")\n"
+            << "    total_pnl=" << report.total_pnl << "  sharpe=" << report.sharpe_ratio
+            << "  sortino=" << report.sortino_ratio << "  max_drawdown=" << report.max_drawdown << "\n"
+            << "    fills=" << report.fill_count << "  traded_qty=" << report.total_traded_quantity
+            << "  final_position=" << result.final_position.quantity << "\n";
 }
 
 }  // namespace
@@ -36,7 +39,7 @@ int main() {
   SyntheticTickGenerator gen(/*seed=*/42, params);
   auto ticks = gen.generate(20000);
 
-  std::cout << "tapebench M4 demo -- generate -> write -> mmap-read -> aggregate -> simulate\n\n";
+  std::cout << "tapebench M5 demo -- generate -> write -> mmap-read -> aggregate -> simulate -> analyze\n\n";
   std::cout << "Generated " << ticks.size() << " synthetic ticks (seed=42)\n";
 
   const auto tape_path = std::filesystem::temp_directory_path() / "tapebench_demo.tape";

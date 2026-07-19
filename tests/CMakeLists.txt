@@ -20,6 +20,7 @@ add_executable(tapebench_tests
   test_position.cpp
   test_execution_model.cpp
   test_simulation.cpp
+  test_analytics.cpp
 )
 target_link_libraries(tapebench_tests PRIVATE tapebench GTest::gtest_main)
 target_compile_options(tapebench_tests PRIVATE -Wall -Wextra)

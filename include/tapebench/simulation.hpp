@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -23,6 +24,7 @@ struct SimulationResult {
   std::vector<EquityPoint> equity_curve;  // one point per bar
   Position final_position;
   int fill_count = 0;
+  double total_traded_quantity = 0.0;  // sum of |fill size| across every fill
 };
 
 // Runs a strategy over a tape of bars with a no-look-ahead execution model:
@@ -52,6 +54,7 @@ SimulationResult simulate(Strategy<StrategyT>& strategy, std::span<const Bar> ba
         const double price = execution.fill_price(bar.open, delta);
         result.final_position.apply_fill(delta, price);
         ++result.fill_count;
+        result.total_traded_quantity += std::abs(delta);
       }
       have_pending = false;
     }

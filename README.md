@@ -7,13 +7,13 @@ pricing/risk engine — this one focuses on execution/simulation
 infrastructure: template-based zero-overhead strategy dispatch, concurrent
 backtesting across parameter grids, and high-throughput tick data I/O.
 
-**Status: M4 of 8 — repo skeleton/build/CI/synthetic generator (M1), a
+**Status: M5 of 8 — repo skeleton/build/CI/synthetic generator (M1), a
 zero-copy tick/bar data pipeline (M2), a CRTP strategy interface with two
-example strategies (M3), and an event-driven simulation core with no-look-ahead
-execution, slippage, and P&L accounting (M4).** The rest of the milestone plan
-(analytics, concurrency, benchmarking, final docs) is tracked as the project
-progresses; this README will be replaced with a full architecture writeup at
-the final milestone.
+example strategies (M3), an event-driven simulation core with no-look-ahead
+execution, slippage, and P&L accounting (M4), and a performance analytics
+harness (M5).** The rest of the milestone plan (concurrency, benchmarking,
+final docs) is tracked as the project progresses; this README will be
+replaced with a full architecture writeup at the final milestone.
 
 ## Why a synthetic tick generator, not real market data?
 
@@ -50,10 +50,11 @@ ctest --test-dir build --output-on-failure
 | `MeanReversion` | `include/tapebench/strategies/mean_reversion.hpp` + `.cpp` | Example mean-reverting strategy: rolling z-score of closes, long/short on large deviations from the rolling mean. |
 | `Position` | `include/tapebench/position.hpp`, `src/position.cpp` | Average-cost position accounting: applying a fill updates the weighted-average entry price (same-direction) or realizes P&L on however much it closes, including correctly handling a fill that reverses the position (closes the old side, opens the new one at the fill price). |
 | `ExecutionModel` | `include/tapebench/execution_model.hpp` | The fill-price model: a configurable basis-points slippage cost against a reference price — buys fill worse (higher), sells fill worse (lower). |
-| `simulate()` | `include/tapebench/simulation.hpp` | The event-driven core, tying strategy + execution + position together with an explicit **no-look-ahead rule**: a signal computed from bar N's close is only actionable starting at bar N+1's open, mirroring that real orders can't fill on information not yet available when the bar closed. Returns a per-bar equity curve (realized + unrealized P&L) plus the final position and fill count. |
-| Demo | `src/main.cpp` | Full pipeline: generate 20,000 ticks → write tape → memory-map it back → aggregate into 200ms bars → simulate both example strategies with 5bps slippage → print final equity/fills/position. |
+| `simulate()` | `include/tapebench/simulation.hpp` | The event-driven core, tying strategy + execution + position together with an explicit **no-look-ahead rule**: a signal computed from bar N's close is only actionable starting at bar N+1's open, mirroring that real orders can't fill on information not yet available when the bar closed. Returns a per-bar equity curve (realized + unrealized P&L), final position, fill count, and total traded quantity. |
+| `analyze()` | `include/tapebench/analytics.hpp`, `src/analytics.cpp` | Performance metrics from a simulation's equity curve: Sharpe and Sortino ratios (computed on bar-over-bar **absolute PnL changes**, not percentage returns — this engine has no notional-capital model, and that simplification is stated explicitly rather than hidden), max drawdown (largest peak-to-trough decline, not just the final one), and turnover (total traded quantity). Optional annualization via a `bars_per_year` factor. |
+| Demo | `src/main.cpp` | Full pipeline: generate 20,000 ticks → write tape → memory-map it back → aggregate into 200ms bars → simulate both example strategies with 5bps slippage → print a full performance report for each. |
 
-58 unit tests across 3 test executables, all passing clean under
+65 unit tests across 3 test executables, all passing clean under
 AddressSanitizer + UndefinedBehaviorSanitizer:
 - **`tapebench_tests`**: generator determinism/bounds/sanity (8), `MappedTape`
   round-trip + move semantics + every documented error case — nonexistent
@@ -63,7 +64,10 @@ AddressSanitizer + UndefinedBehaviorSanitizer:
   dispatch mechanics proven generic across two differently-shaped strategies
   (4), both example strategies' warm-up/threshold/edge-case behavior (7),
   `Position` accounting across opening/adding/partial-close/full-close/reversal
-  for both long and short (9), `ExecutionModel` slippage direction (5), and
+  for both long and short (9), `ExecutionModel` slippage direction (5),
   `simulate()`'s no-look-ahead guarantee, slippage propagation, and edge cases,
-  hand-traced against exact expected equity values (6).
+  hand-traced against exact expected equity values (6), and `analyze()`'s
+  Sharpe/Sortino/max-drawdown/annualization, each checked against an
+  independently-written reference calculation rather than just re-invoking
+  the function under test (7).
 - **`tapebench_zero_copy_tests`**: the dedicated allocation-counting proof (1).
