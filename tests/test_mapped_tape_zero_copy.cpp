@@ -18,6 +18,13 @@ namespace {
 std::atomic<std::size_t> g_new_count{0};
 }  // namespace
 
+// Every overload must be covered, not just the plain throwing new/delete:
+// libstdc++'s std::stable_sort (used internally by GoogleTest to order test
+// cases) calls the *nothrow* operator new to allocate its temporary buffer.
+// Missing that overload here caused ASan to report an alloc-dealloc-mismatch
+// on Linux CI (that allocation fell through to ASan's own allocator, then
+// got freed via this file's std::free()-based operator delete) -- it never
+// reproduced locally on macOS, only on the gcc/Linux CI leg.
 void* operator new(std::size_t size) {
   ++g_new_count;
   void* ptr = std::malloc(size);
@@ -26,11 +33,20 @@ void* operator new(std::size_t size) {
   }
   return ptr;
 }
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
+  ++g_new_count;
+  return std::malloc(size);
+}
 void* operator new[](std::size_t size) { return ::operator new(size); }
+void* operator new[](std::size_t size, const std::nothrow_t&) noexcept {
+  return ::operator new(size, std::nothrow);
+}
 void operator delete(void* ptr) noexcept { std::free(ptr); }
 void operator delete(void* ptr, std::size_t) noexcept { std::free(ptr); }
+void operator delete(void* ptr, const std::nothrow_t&) noexcept { std::free(ptr); }
 void operator delete[](void* ptr) noexcept { std::free(ptr); }
 void operator delete[](void* ptr, std::size_t) noexcept { std::free(ptr); }
+void operator delete[](void* ptr, const std::nothrow_t&) noexcept { std::free(ptr); }
 
 namespace {
 
