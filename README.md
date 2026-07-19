@@ -7,10 +7,11 @@ pricing/risk engine — this one focuses on execution/simulation
 infrastructure: template-based zero-overhead strategy dispatch, concurrent
 backtesting across parameter grids, and high-throughput tick data I/O.
 
-**Status: M3 of 8 — repo skeleton/build/CI/synthetic generator (M1), a
-zero-copy tick/bar data pipeline (M2), and a CRTP strategy interface with two
-example strategies (M3).** The rest of the milestone plan (simulation core,
-analytics, concurrency, benchmarking, final docs) is tracked as the project
+**Status: M4 of 8 — repo skeleton/build/CI/synthetic generator (M1), a
+zero-copy tick/bar data pipeline (M2), a CRTP strategy interface with two
+example strategies (M3), and an event-driven simulation core with no-look-ahead
+execution, slippage, and P&L accounting (M4).** The rest of the milestone plan
+(analytics, concurrency, benchmarking, final docs) is tracked as the project
 progresses; this README will be replaced with a full architecture writeup at
 the final milestone.
 
@@ -47,9 +48,12 @@ ctest --test-dir build --output-on-failure
 | `Strategy<Derived>` | `include/tapebench/strategy.hpp` | CRTP base for **compile-time (zero-overhead) strategy dispatch** — `on_bar()`/`name()` resolve to a direct, inlinable call to `Derived`'s implementation, no vtable, no indirect call. Enforced by a C++20 concept (`StrategyImpl`), not just duck-typing, so a strategy that gets the interface wrong fails to compile with a specific message. `run_over_bars()` is a generic driver that works identically for any conforming strategy. |
 | `MovingAverageCrossover` | `include/tapebench/strategies/moving_average_crossover.hpp` + `.cpp` | Example trend-following strategy: long when the fast close average is above the slow one, short otherwise. |
 | `MeanReversion` | `include/tapebench/strategies/mean_reversion.hpp` + `.cpp` | Example mean-reverting strategy: rolling z-score of closes, long/short on large deviations from the rolling mean. |
-| Demo | `src/main.cpp` | Full pipeline: generate 20,000 ticks → write tape → memory-map it back → aggregate into 200ms bars → run both example strategies over the same bars, side by side. |
+| `Position` | `include/tapebench/position.hpp`, `src/position.cpp` | Average-cost position accounting: applying a fill updates the weighted-average entry price (same-direction) or realizes P&L on however much it closes, including correctly handling a fill that reverses the position (closes the old side, opens the new one at the fill price). |
+| `ExecutionModel` | `include/tapebench/execution_model.hpp` | The fill-price model: a configurable basis-points slippage cost against a reference price — buys fill worse (higher), sells fill worse (lower). |
+| `simulate()` | `include/tapebench/simulation.hpp` | The event-driven core, tying strategy + execution + position together with an explicit **no-look-ahead rule**: a signal computed from bar N's close is only actionable starting at bar N+1's open, mirroring that real orders can't fill on information not yet available when the bar closed. Returns a per-bar equity curve (realized + unrealized P&L) plus the final position and fill count. |
+| Demo | `src/main.cpp` | Full pipeline: generate 20,000 ticks → write tape → memory-map it back → aggregate into 200ms bars → simulate both example strategies with 5bps slippage → print final equity/fills/position. |
 
-39 unit tests across 3 test executables, all passing clean under
+58 unit tests across 3 test executables, all passing clean under
 AddressSanitizer + UndefinedBehaviorSanitizer:
 - **`tapebench_tests`**: generator determinism/bounds/sanity (8), `MappedTape`
   round-trip + move semantics + every documented error case — nonexistent
@@ -57,5 +61,9 @@ AddressSanitizer + UndefinedBehaviorSanitizer:
   (9), `BarAggregator` bucket boundaries, empty-bucket skipping, OHLCV
   correctness, and a total-trade-count invariant across all bars (7), the CRTP
   dispatch mechanics proven generic across two differently-shaped strategies
-  (4), and both example strategies' warm-up/threshold/edge-case behavior (7).
+  (4), both example strategies' warm-up/threshold/edge-case behavior (7),
+  `Position` accounting across opening/adding/partial-close/full-close/reversal
+  for both long and short (9), `ExecutionModel` slippage direction (5), and
+  `simulate()`'s no-look-ahead guarantee, slippage propagation, and edge cases,
+  hand-traced against exact expected equity values (6).
 - **`tapebench_zero_copy_tests`**: the dedicated allocation-counting proof (1).

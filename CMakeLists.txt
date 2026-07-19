@@ -21,6 +21,7 @@ add_library(tapebench STATIC
   src/bar_aggregator.cpp
   src/strategies/moving_average_crossover.cpp
   src/strategies/mean_reversion.cpp
+  src/position.cpp
 )
 target_include_directories(tapebench PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(tapebench PUBLIC cxx_std_20)
