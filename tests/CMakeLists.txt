@@ -21,6 +21,8 @@ add_executable(tapebench_tests
   test_execution_model.cpp
   test_simulation.cpp
   test_analytics.cpp
+  test_thread_pool.cpp
+  test_parallel_backtest.cpp
 )
 target_link_libraries(tapebench_tests PRIVATE tapebench GTest::gtest_main)
 target_compile_options(tapebench_tests PRIVATE -Wall -Wextra)

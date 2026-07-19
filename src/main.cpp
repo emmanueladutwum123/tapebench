@@ -1,3 +1,4 @@
+#include <chrono>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -6,11 +7,13 @@
 #include "tapebench/analytics.hpp"
 #include "tapebench/bar_aggregator.hpp"
 #include "tapebench/mapped_tape.hpp"
+#include "tapebench/parallel_backtest.hpp"
 #include "tapebench/simulation.hpp"
 #include "tapebench/strategies/mean_reversion.hpp"
 #include "tapebench/strategies/moving_average_crossover.hpp"
 #include "tapebench/synthetic_generator.hpp"
 #include "tapebench/tape_writer.hpp"
+#include "tapebench/thread_pool.hpp"
 
 namespace {
 
@@ -39,7 +42,7 @@ int main() {
   SyntheticTickGenerator gen(/*seed=*/42, params);
   auto ticks = gen.generate(20000);
 
-  std::cout << "tapebench M5 demo -- generate -> write -> mmap-read -> aggregate -> simulate -> analyze\n\n";
+  std::cout << "tapebench M6 demo -- generate -> write -> mmap-read -> aggregate -> simulate -> analyze -> grid search\n\n";
   std::cout << "Generated " << ticks.size() << " synthetic ticks (seed=42)\n";
 
   const auto tape_path = std::filesystem::temp_directory_path() / "tapebench_demo.tape";
@@ -67,6 +70,53 @@ int main() {
   strategies::MeanReversion mean_reversion(/*window=*/20, /*entry_z_score=*/1.5, /*position_size=*/1.0);
   PrintSimulationSummary("MovingAverageCrossover", ma_crossover, bars, execution);
   PrintSimulationSummary("MeanReversion", mean_reversion, bars, execution);
+
+  std::cout << "\nParameter grid search: 9 MovingAverageCrossover variants (fast in {3,5,8} x slow in\n"
+             << "{15,20,30}), sequential vs. parallel (custom thread pool, 4 workers):\n";
+
+  auto make_grid = [] {
+    std::vector<strategies::MovingAverageCrossover> grid;
+    for (std::size_t fast : {3u, 5u, 8u}) {
+      for (std::size_t slow : {15u, 20u, 30u}) {
+        grid.emplace_back(fast, slow, 1.0);
+      }
+    }
+    return grid;
+  };
+
+  auto sequential_grid = make_grid();
+  const auto seq_start = std::chrono::steady_clock::now();
+  auto sequential_reports = run_grid_sequential(sequential_grid, bars, execution);
+  const auto seq_elapsed = std::chrono::steady_clock::now() - seq_start;
+
+  auto parallel_grid = make_grid();
+  ThreadPool pool(4);
+  const auto par_start = std::chrono::steady_clock::now();
+  auto parallel_reports = run_grid_parallel(parallel_grid, bars, execution, pool);
+  const auto par_elapsed = std::chrono::steady_clock::now() - par_start;
+
+  bool results_match = true;
+  for (std::size_t i = 0; i < sequential_reports.size(); ++i) {
+    if (sequential_reports[i].total_pnl != parallel_reports[i].total_pnl) {
+      results_match = false;
+    }
+  }
+
+  std::size_t best_idx = 0;
+  for (std::size_t i = 1; i < parallel_reports.size(); ++i) {
+    if (parallel_reports[i].sharpe_ratio > parallel_reports[best_idx].sharpe_ratio) {
+      best_idx = i;
+    }
+  }
+
+  std::cout << "  " << sequential_reports.size() << " variants; parallel results match sequential: "
+            << (results_match ? "yes" : "NO -- BUG") << "\n"
+            << "  sequential: " << std::chrono::duration<double, std::milli>(seq_elapsed).count() << " ms\n"
+            << "  parallel:   " << std::chrono::duration<double, std::milli>(par_elapsed).count() << " ms\n"
+            << "  (informal timing on a 9-variant/50-bar grid -- thread overhead dominates at this\n"
+             << "  size; see BENCHMARKS.md from M7 for rigorous, larger-scale numbers)\n"
+             << "  best Sharpe in grid: variant " << best_idx
+             << " (sharpe=" << parallel_reports[best_idx].sharpe_ratio << ")\n";
 
   std::filesystem::remove(tape_path);
   return 0;

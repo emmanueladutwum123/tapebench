@@ -7,13 +7,14 @@ pricing/risk engine — this one focuses on execution/simulation
 infrastructure: template-based zero-overhead strategy dispatch, concurrent
 backtesting across parameter grids, and high-throughput tick data I/O.
 
-**Status: M5 of 8 — repo skeleton/build/CI/synthetic generator (M1), a
+**Status: M6 of 8 — repo skeleton/build/CI/synthetic generator (M1), a
 zero-copy tick/bar data pipeline (M2), a CRTP strategy interface with two
 example strategies (M3), an event-driven simulation core with no-look-ahead
-execution, slippage, and P&L accounting (M4), and a performance analytics
-harness (M5).** The rest of the milestone plan (concurrency, benchmarking,
-final docs) is tracked as the project progresses; this README will be
-replaced with a full architecture writeup at the final milestone.
+execution, slippage, and P&L accounting (M4), a performance analytics harness
+(M5), and concurrent parameter-grid backtesting via a custom thread pool
+(M6).** The rest of the milestone plan (benchmarking, final docs) is tracked
+as the project progresses; this README will be replaced with a full
+architecture writeup at the final milestone.
 
 ## Why a synthetic tick generator, not real market data?
 
@@ -52,10 +53,14 @@ ctest --test-dir build --output-on-failure
 | `ExecutionModel` | `include/tapebench/execution_model.hpp` | The fill-price model: a configurable basis-points slippage cost against a reference price — buys fill worse (higher), sells fill worse (lower). |
 | `simulate()` | `include/tapebench/simulation.hpp` | The event-driven core, tying strategy + execution + position together with an explicit **no-look-ahead rule**: a signal computed from bar N's close is only actionable starting at bar N+1's open, mirroring that real orders can't fill on information not yet available when the bar closed. Returns a per-bar equity curve (realized + unrealized P&L), final position, fill count, and total traded quantity. |
 | `analyze()` | `include/tapebench/analytics.hpp`, `src/analytics.cpp` | Performance metrics from a simulation's equity curve: Sharpe and Sortino ratios (computed on bar-over-bar **absolute PnL changes**, not percentage returns — this engine has no notional-capital model, and that simplification is stated explicitly rather than hidden), max drawdown (largest peak-to-trough decline, not just the final one), and turnover (total traded quantity). Optional annualization via a `bars_per_year` factor. |
-| Demo | `src/main.cpp` | Full pipeline: generate 20,000 ticks → write tape → memory-map it back → aggregate into 200ms bars → simulate both example strategies with 5bps slippage → print a full performance report for each. |
+| `ThreadPool` | `include/tapebench/thread_pool.hpp`, `src/thread_pool.cpp` | A real thread pool from scratch: mutex + condition-variable task queue, worker threads, `std::packaged_task`/`std::future` for per-task results (including propagated exceptions), idempotent explicit `shutdown()`. |
+| `run_grid_parallel` / `run_grid_sequential` | `include/tapebench/parallel_backtest.hpp` | Runs a batch of independent strategy instances through `simulate()`+`analyze()`, either across the thread pool or one at a time, **preserving input order** in the results (not completion order) so parallel and sequential runs are directly comparable index-for-index. Correctness verified — not assumed — by asserting the two produce byte-identical results, and clean under ThreadSanitizer (dedicated CI job, see below). |
+| Demo | `src/main.cpp` | Full pipeline: generate 20,000 ticks → write tape → memory-map it back → aggregate into 200ms bars → simulate both example strategies → run a 9-variant parameter grid sequentially and in parallel, confirming the results match. |
 
-65 unit tests across 3 test executables, all passing clean under
-AddressSanitizer + UndefinedBehaviorSanitizer:
+74 unit tests across 3 test executables, all passing clean under
+AddressSanitizer + UndefinedBehaviorSanitizer (plus a dedicated
+ThreadSanitizer CI job covering the concurrent code specifically — TSan and
+ASan use incompatible runtimes, so it can't just be another matrix leg):
 - **`tapebench_tests`**: generator determinism/bounds/sanity (8), `MappedTape`
   round-trip + move semantics + every documented error case — nonexistent
   file, too-small file, bad magic, unsupported version, truncated tick data
@@ -69,5 +74,10 @@ AddressSanitizer + UndefinedBehaviorSanitizer:
   hand-traced against exact expected equity values (6), and `analyze()`'s
   Sharpe/Sortino/max-drawdown/annualization, each checked against an
   independently-written reference calculation rather than just re-invoking
-  the function under test (7).
+  the function under test (7), `ThreadPool` task execution/result
+  propagation/exception propagation/idempotent shutdown, including a check
+  that work actually lands on more than one OS thread (6), and
+  `run_grid_parallel`/`run_grid_sequential` producing byte-identical results
+  including under a differently-shaped strategy with varied per-instance
+  workload (3).
 - **`tapebench_zero_copy_tests`**: the dedicated allocation-counting proof (1).

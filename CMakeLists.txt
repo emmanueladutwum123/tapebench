@@ -12,7 +12,12 @@ endif()
 option(TB_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 option(TB_ENABLE_ASAN "Build with AddressSanitizer" OFF)
 option(TB_ENABLE_UBSAN "Build with UndefinedBehaviorSanitizer" OFF)
+option(TB_ENABLE_TSAN "Build with ThreadSanitizer (mutually exclusive with ASan/UBSan)" OFF)
 option(TB_BUILD_TESTS "Build the GoogleTest unit test suite" ON)
+
+if(TB_ENABLE_TSAN AND (TB_ENABLE_ASAN OR TB_ENABLE_UBSAN))
+  message(FATAL_ERROR "TB_ENABLE_TSAN cannot be combined with TB_ENABLE_ASAN/TB_ENABLE_UBSAN -- ASan and TSan use incompatible runtimes")
+endif()
 
 add_library(tapebench STATIC
   src/synthetic_generator.cpp
@@ -23,9 +28,13 @@ add_library(tapebench STATIC
   src/strategies/mean_reversion.cpp
   src/position.cpp
   src/analytics.cpp
+  src/thread_pool.cpp
 )
+
+find_package(Threads REQUIRED)
 target_include_directories(tapebench PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(tapebench PUBLIC cxx_std_20)
+target_link_libraries(tapebench PUBLIC Threads::Threads)
 
 set(TB_WARNING_FLAGS -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion)
 if(TB_WARNINGS_AS_ERRORS)
@@ -40,6 +49,10 @@ endif()
 if(TB_ENABLE_UBSAN)
   target_compile_options(tapebench PUBLIC -fsanitize=undefined -fno-omit-frame-pointer -g)
   target_link_options(tapebench PUBLIC -fsanitize=undefined)
+endif()
+if(TB_ENABLE_TSAN)
+  target_compile_options(tapebench PUBLIC -fsanitize=thread -fno-omit-frame-pointer -g)
+  target_link_options(tapebench PUBLIC -fsanitize=thread)
 endif()
 
 add_executable(tapebench_demo src/main.cpp)
