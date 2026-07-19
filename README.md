@@ -7,11 +7,11 @@ pricing/risk engine — this one focuses on execution/simulation
 infrastructure: template-based zero-overhead strategy dispatch, concurrent
 backtesting across parameter grids, and high-throughput tick data I/O.
 
-**Status: M1 of 8 — repo skeleton, build, CI, and a synthetic tick generator.**
-The rest of the milestone plan (data pipeline, strategy interface, simulation
-core, analytics, concurrency, benchmarking, final docs) is tracked as the
-project progresses; this README will be replaced with a full architecture
-writeup at the final milestone.
+**Status: M2 of 8 — repo skeleton/build/CI/synthetic generator (M1), plus a
+zero-copy tick/bar data pipeline (M2).** The rest of the milestone plan
+(strategy interface, simulation core, analytics, concurrency, benchmarking,
+final docs) is tracked as the project progresses; this README will be
+replaced with a full architecture writeup at the final milestone.
 
 ## Why a synthetic tick generator, not real market data?
 
@@ -37,11 +37,19 @@ ctest --test-dir build --output-on-failure
 
 | Component | File(s) | What it does |
 |---|---|---|
-| `Tick` | `include/tapebench/tick.hpp` | The flat, trivially-copyable trade-print type every later milestone builds on — pinned for zero-copy tape I/O in M2. |
+| `Tick` | `include/tapebench/tick.hpp` | The flat, trivially-copyable trade-print type every later milestone builds on. |
 | `SyntheticTickGenerator` | `include/tapebench/synthetic_generator.hpp`, `src/synthetic_generator.cpp` | Deterministic, seeded synthetic trade tape: GBM price path, Poisson-process arrival times, order-flow-biased trade side. |
-| Demo | `src/main.cpp` | Generates and prints 20 ticks from a fixed seed. |
+| Tape format | `include/tapebench/tape_format.hpp` | The on-disk layout: a small header immediately followed by contiguous `Tick` records — no compression or variable-length encoding, so it can be memory-mapped and reinterpreted directly. |
+| `write_tape` | `include/tapebench/tape_writer.hpp`, `src/tape_writer.cpp` | Serializes a tick tape to disk in that format. |
+| `MappedTape` | `include/tapebench/mapped_tape.hpp`, `src/mapped_tape.cpp` | Memory-maps a tape file and exposes its ticks as a `std::span<const Tick>` pointing directly into the mapping — **zero heap copy on the read path, verified (not assumed)** by a dedicated test that overrides global `operator new` and asserts 0 allocations while reading 5,000 ticks. Move-only; throws on a missing/truncated/malformed file. |
+| `Bar` / `aggregate_bars` | `include/tapebench/bar.hpp`, `include/tapebench/bar_aggregator.hpp`, `src/bar_aggregator.cpp` | Aggregates a tick tape into fixed-duration OHLCV bars, single pass, skipping empty buckets. |
+| Demo | `src/main.cpp` | Full pipeline: generate 2,000 ticks → write tape → memory-map it back → aggregate into 500ms bars → print the first 5. |
 
-8 unit tests cover: determinism (same seed → identical tape), non-determinism
-across seeds, strictly increasing timestamps, price positivity, size bounds,
-side variety, and a drift sanity check — all passing clean under
-AddressSanitizer + UndefinedBehaviorSanitizer.
+25 unit tests across 3 test executables, all passing clean under
+AddressSanitizer + UndefinedBehaviorSanitizer:
+- **`tapebench_tests`**: generator determinism/bounds/sanity (8), `MappedTape`
+  round-trip + move semantics + every documented error case — nonexistent
+  file, too-small file, bad magic, unsupported version, truncated tick data
+  (9), `BarAggregator` bucket boundaries, empty-bucket skipping, OHLCV
+  correctness, and a total-trade-count invariant across all bars (7).
+- **`tapebench_zero_copy_tests`**: the dedicated allocation-counting proof (1).

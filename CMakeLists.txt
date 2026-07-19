@@ -16,6 +16,9 @@ option(TB_BUILD_TESTS "Build the GoogleTest unit test suite" ON)
 
 add_library(tapebench STATIC
   src/synthetic_generator.cpp
+  src/tape_writer.cpp
+  src/mapped_tape.cpp
+  src/bar_aggregator.cpp
 )
 target_include_directories(tapebench PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(tapebench PUBLIC cxx_std_20)
