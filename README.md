@@ -7,14 +7,18 @@ pricing/risk engine — this one focuses on execution/simulation
 infrastructure: template-based zero-overhead strategy dispatch, concurrent
 backtesting across parameter grids, and high-throughput tick data I/O.
 
-**Status: M6 of 8 — repo skeleton/build/CI/synthetic generator (M1), a
+**Status: M7 of 8 — repo skeleton/build/CI/synthetic generator (M1), a
 zero-copy tick/bar data pipeline (M2), a CRTP strategy interface with two
 example strategies (M3), an event-driven simulation core with no-look-ahead
 execution, slippage, and P&L accounting (M4), a performance analytics harness
-(M5), and concurrent parameter-grid backtesting via a custom thread pool
-(M6).** The rest of the milestone plan (benchmarking, final docs) is tracked
-as the project progresses; this README will be replaced with a full
-architecture writeup at the final milestone.
+(M5), concurrent parameter-grid backtesting via a custom thread pool (M6),
+and a Google Benchmark latency/throughput harness with real, captured numbers
+(M7).** Only final polish (architecture diagram, consolidated DESIGN.md) is
+left; this README will be replaced with a full architecture writeup at that
+final milestone. See [BENCHMARKS.md](BENCHMARKS.md) for real, measured
+numbers — including CRTP dispatch beating virtual dispatch by ~3.1x and the
+parallel-grid backtester hitting a genuine ~3.8x wall-clock speedup with
+byte-identical results to the sequential run.
 
 ## Why a synthetic tick generator, not real market data?
 
@@ -56,6 +60,7 @@ ctest --test-dir build --output-on-failure
 | `ThreadPool` | `include/tapebench/thread_pool.hpp`, `src/thread_pool.cpp` | A real thread pool from scratch: mutex + condition-variable task queue, worker threads, `std::packaged_task`/`std::future` for per-task results (including propagated exceptions), idempotent explicit `shutdown()`. |
 | `run_grid_parallel` / `run_grid_sequential` | `include/tapebench/parallel_backtest.hpp` | Runs a batch of independent strategy instances through `simulate()`+`analyze()`, either across the thread pool or one at a time, **preserving input order** in the results (not completion order) so parallel and sequential runs are directly comparable index-for-index. Correctness verified — not assumed — by asserting the two produce byte-identical results, and clean under ThreadSanitizer (dedicated CI job, see below). |
 | Demo | `src/main.cpp` | Full pipeline: generate 20,000 ticks → write tape → memory-map it back → aggregate into 200ms bars → simulate both example strategies → run a 9-variant parameter grid sequentially and in parallel, confirming the results match. |
+| `bench/` | 6 executables (`-DTB_BUILD_BENCHMARKS=ON`) | Google Benchmark microbenchmarks: CRTP-vs-virtual dispatch, tick generation, mmap-tape iteration, bar aggregation, `simulate()` throughput per strategy, and sequential-vs-parallel grid backtesting at real scale (500K ticks, up to 200 grid variants). Real captured numbers in [BENCHMARKS.md](BENCHMARKS.md), not estimated. |
 
 74 unit tests across 3 test executables, all passing clean under
 AddressSanitizer + UndefinedBehaviorSanitizer (plus a dedicated
